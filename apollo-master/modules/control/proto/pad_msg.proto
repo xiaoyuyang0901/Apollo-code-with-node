@@ -1,0 +1,34 @@
+syntax = "proto2";
+package apollo.control;
+
+import "modules/common/proto/header.proto";
+import "modules/canbus/proto/chassis.proto";
+
+// Pad消息通过发送状态来控制汽车的模式（自动驾驶还是人工驾驶），
+// 其中"DrivingAction"一共有3种状态
+
+// Control模块中只能使用Pad消息"RESET"来清空"estop_"的状态。
+// 实际上Control模块会判断"driving_mode"来决定是否启动自动驾驶，
+// 而"driving_mode"是通过发送pad消息状态给"Canbus"模块来控制的，
+// 这会在Canbus模块中详细介绍
+
+// 总之Pad消息的2个作用是:
+  // 1、发送消息给Canbus模块，来控制driving_mode，Control模块判断
+  // 当前driving_mode的状态来决定是否启动自动驾驶
+  // 2、通过RESET来清空estop_的状态
+enum DrivingAction {
+  STOP = 0;
+  START = 1;
+  RESET = 2;
+};
+
+message PadMessage {
+  // control mode, set mode according to low level definition
+  optional apollo.common.Header header = 1;
+
+  // send driving mode to drive
+  optional apollo.canbus.Chassis.DrivingMode driving_mode = 2;
+
+  // action in the driving_mode
+  optional DrivingAction action = 3;
+}
