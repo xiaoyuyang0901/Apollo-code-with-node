@@ -48,8 +48,8 @@ HybridAStar::HybridAStar(const PlannerOpenSpaceConfig& open_space_conf) {
 }
 
 
+
 //尝试使用ReedShepp曲线连接当前点与目标点，若成功，则Hybrid A*规划完成
-//允许返回false，其实只返回一次true
 bool HybridAStar::AnalyticExpansion(std::shared_ptr<Node3d> current_node) {
   std::shared_ptr<ReedSheppPath> reeds_shepp_to_check = std::make_shared<ReedSheppPath>();
   if (!reed_shepp_generator_->ShortestRSP(current_node, end_node_,
@@ -80,6 +80,7 @@ bool HybridAStar::RSPCheck(
 
 
 
+// 查看是否与障碍物存在碰撞
 bool HybridAStar::ValidityCheck(std::shared_ptr<Node3d> node) {
   CHECK_NOTNULL(node);
   CHECK_GT(node->GetStepSize(), 0U);
@@ -142,13 +143,13 @@ std::shared_ptr<Node3d> HybridAStar::LoadRSPinCS(
 
 
 
-// 从 current_node ，以某一steering，前进arc(长度为对角线)
+// 从 current_node ，以某一steering，前进arc(长度为一个栅格的对角线长度)
 std::shared_ptr<Node3d> 
 HybridAStar::Next_node_generator(std::shared_ptr<Node3d> current_node, 
                                  size_t next_node_index) {
   double steering = 0.0;
   double traveled_distance = 0.0;
-  //首先，根据next_node_index与next_node_num_的对比是可以区分运动方向的（前进和倒车）
+  // 首先，根据next_node_index与next_node_num_的对比是可以区分运动方向的（前进和倒车）
   // next_node_num_前一半是前进，后一半是后退
   // steering = 初始偏移量 + 单位间隔 × index
   /****************************************************************************
@@ -274,12 +275,13 @@ double HybridAStar::HoloObstacleHeuristic(std::shared_ptr<Node3d> next_node) {
 }
 
 
-
+// 回溯法得到路径，从final_node_顺藤摸瓜
 bool HybridAStar::GetResult(HybridAStartResult* result) {
   std::shared_ptr<Node3d> current_node = final_node_/*目标点*/;
   std::vector<double> hybrid_a_x;
   std::vector<double> hybrid_a_y;
   std::vector<double> hybrid_a_phi;
+  // 核心的while循环，回溯过程
   while (current_node->GetPreNode() != nullptr) {
     std::vector<double> x = current_node->GetXs();
     std::vector<double> y = current_node->GetYs();
@@ -292,6 +294,7 @@ bool HybridAStar::GetResult(HybridAStartResult* result) {
       AERROR << "states sizes are not equal";
       return false;
     }
+    // 将traversed_x_ y_ phi_ 反转下
     std::reverse(x.begin(), x.end());
     std::reverse(y.begin(), y.end());
     std::reverse(phi.begin(), phi.end());
@@ -303,16 +306,21 @@ bool HybridAStar::GetResult(HybridAStartResult* result) {
     hybrid_a_phi.insert(hybrid_a_phi.end(), phi.begin(), phi.end());
     current_node = current_node->GetPreNode();
   }
+
   hybrid_a_x.push_back(current_node->GetX());
   hybrid_a_y.push_back(current_node->GetY());
   hybrid_a_phi.push_back(current_node->GetPhi());
+
+  // 上面traversed_x_ y_ phi_被反转了，得反转回来
   std::reverse(hybrid_a_x.begin(), hybrid_a_x.end());
   std::reverse(hybrid_a_y.begin(), hybrid_a_y.end());
   std::reverse(hybrid_a_phi.begin(), hybrid_a_phi.end());
+  // 此时 result只包含位姿信息 x,y,phi
   (*result).x = hybrid_a_x;
   (*result).y = hybrid_a_y;
   (*result).phi = hybrid_a_phi;
 
+  // 添加速度、加速度、转向信息 v,a,steering
   if (!GetTemporalProfile(result)) {
     AERROR << "GetSpeedProfile from Hybrid Astar path fails";
     return false;
@@ -350,6 +358,8 @@ bool HybridAStar::GenerateSpeedAcceleration(HybridAStartResult* result) {
 
   // load velocity from position
   // initial and end speed are set to be zeros
+  // 从位置恢复速度 v
+  // 起点、终点的 v 为 “零”，因为不同段之间换挡时，肯定要把车刹住才能换挡
   result->v.push_back(0.0);
   for (size_t i = 1; i + 1 < x_size; ++i) {
     double discrete_v = (((result->x[i + 1] - result->x[i]) / delta_t_) *
@@ -367,12 +377,14 @@ bool HybridAStar::GenerateSpeedAcceleration(HybridAStartResult* result) {
   result->v.push_back(0.0);
 
   // load acceleration from velocity
+  // 从速度恢复加速度 a
   for (size_t i = 0; i + 1 < x_size; ++i) {
     const double discrete_a = (result->v[i + 1] - result->v[i]) / delta_t_;
     result->a.push_back(discrete_a);
   }
 
   // load steering from phi
+  // 依据航向角phi恢复 steering
   for (size_t i = 0; i + 1 < x_size; ++i) {
     double discrete_steer = (result->phi[i + 1] - result->phi[i]) *
                             vehicle_param_.wheel_base() / step_size_;
@@ -412,10 +424,11 @@ bool HybridAStar::GenerateSCurveSpeedAcceleration(HybridAStartResult* result) {
   // get path lengh
   size_t path_points_size = result->x.size();
 
-  double accumulated_s = 0.0;
+  double accumulCated_s = 0.0;
   result->accumulated_s.clear();
   auto last_x = result->x.front();
   auto last_y = result->y.front();
+  // 累加得到这段路径的长度 accumulCated_s
   for (size_t i = 0; i < path_points_size; ++i) {
     double x_diff = result->x[i] - last_x;
     double y_diff = result->y[i] - last_y;
@@ -472,12 +485,13 @@ bool HybridAStar::GenerateSCurveSpeedAcceleration(HybridAStartResult* result) {
                                                    {0.0, upper_dx});
   std::vector<std::pair<double, double>> ddx_bounds(num_of_knots,
                                                     {-max_acc, max_acc});
-
+  // 终点的约束条件
   x_bounds[num_of_knots - 1] = std::make_pair(path_length, path_length);
   dx_bounds[num_of_knots - 1] = std::make_pair(0.0, 0.0);
   ddx_bounds[num_of_knots - 1] = std::make_pair(0.0, 0.0);
 
   // TODO(Jinyun): move to confs
+  // 佐料都先准备好，一股脑丢给OSQP求解器来解算
   std::vector<double> x_ref(num_of_knots, path_length);
   piecewise_jerk_problem.set_x_ref(10000.0, std::move(x_ref));
   piecewise_jerk_problem.set_weight_ddx(10.0);
@@ -488,6 +502,7 @@ bool HybridAStar::GenerateSCurveSpeedAcceleration(HybridAStartResult* result) {
   piecewise_jerk_problem.set_dddx_bound(max_acc_jerk);
 
   // solve the problem
+  // 起锅烧油，一通操作，完成求解
   if (!piecewise_jerk_problem.Optimize()) {
     AERROR << "Piecewise jerk speed optimizer failed!";
     return false;
@@ -499,6 +514,7 @@ bool HybridAStar::GenerateSCurveSpeedAcceleration(HybridAStartResult* result) {
   const std::vector<double>& dds = piecewise_jerk_problem.opt_ddx();
 
   // assign speed point by gear
+  // 用 speed_data 存储 s, v, a, jerk
   speed_data.AppendSpeedPoint(s[0], 0.0, ds[0], dds[0], 0.0);
   const double kEpislon = 1.0e-6;
   const double sEpislon = 1.0e-6;
@@ -518,6 +534,7 @@ bool HybridAStar::GenerateSCurveSpeedAcceleration(HybridAStartResult* result) {
   }
 
   // combine speed and path profile
+  // path_data 存储位姿信息 x, y, phi, s
   DiscretizedPath path_data;
   for (size_t i = 0; i < path_points_size; ++i) {
     common::PathPoint path_point;
@@ -528,6 +545,7 @@ bool HybridAStar::GenerateSCurveSpeedAcceleration(HybridAStartResult* result) {
     path_data.push_back(std::move(path_point));
   }
 
+  // speed_data 和 path_data 混合后存放在 combined_result
   HybridAStartResult combined_result;
 
   // TODO(Jinyun): move to confs
@@ -571,6 +589,7 @@ bool HybridAStar::GenerateSCurveSpeedAcceleration(HybridAStartResult* result) {
   path_points_size = combined_result.x.size();
 
   // load steering from phi
+  // 添加 steering信息
   for (size_t i = 0; i + 1 < path_points_size; ++i) {
     double discrete_steer =
         (combined_result.phi[i + 1] - combined_result.phi[i]) *
@@ -613,18 +632,21 @@ bool HybridAStar::TrajectoryPartition(
   for (size_t i = 0; i < horizon - 1; ++i) {
     heading_angle = phi[i];
     const Vec2d tracking_vector(x[i + 1] - x[i], y[i + 1] - y[i]);
-    tracking_angle = tracking_vector.Angle();
+    tracking_angle = tracking_vector.Angle(); 
+    // 路径朝向和车身朝向的夹角来判断“前进”还是“倒退”
     bool gear =
         std::abs(common::math::NormalizeAngle(tracking_angle - heading_angle)) <
         (M_PI_2);
     if (gear != current_gear) {
+      // 换 gear，这一段轨迹就完成了，重启一段
       current_traj->x.push_back(x[i]);
       current_traj->y.push_back(y[i]);
       current_traj->phi.push_back(phi[i]);
       partitioned_result->emplace_back();
       current_traj = &(partitioned_result->back());
-      current_gear = gear;
+      current_gear = gear; // 更新 current_gear
     }
+    // 不换 gear
     current_traj->x.push_back(x[i]);
     current_traj->y.push_back(y[i]);
     current_traj->phi.push_back(phi[i]);
@@ -636,6 +658,7 @@ bool HybridAStar::TrajectoryPartition(
   const auto start_timestamp = std::chrono::system_clock::now();
 
   // Retrieve v, a and steer from path
+  // 从路径中恢复 v, a, steering
   for (auto& result : *partitioned_result) {
     if (FLAGS_use_s_curve_speed_smooth) {
       if (!GenerateSCurveSpeedAcceleration(&result)) {
@@ -730,7 +753,7 @@ bool HybridAStar::Plan(
   }
   double map_time = Clock::NowInSeconds();
 
-  //使用动态规划DP来计算目标点到某点的启发代价（以目标点为DP的起点），即A*中的H
+  //使用动态规划DP来计算目标点到某点的启发代价（以目标点为DP的起点）
   //生成graph的同时获得了目标点到图中任一点的cost，后续只需要查表，空间换时间
   grid_a_star_heuristic_generator_->GenerateDpMap(ex, ey, XYbounds_,
                                                   obstacles_linesegments_vec_);
@@ -750,9 +773,7 @@ bool HybridAStar::Plan(
     open_pq_.pop();
     std::shared_ptr<Node3d> current_node = open_set_[current_id];
 
-    //true：如果生成了一条从当前点到目标点的ReedShepp曲线，就找到了最短路径
-    //false：否则，继续Hybrid A*扩展节点
-    //此处借鉴了“ Path Planning for Autonomous Vehicles in Unknown Semi-Structured Environments ”
+    // 用RS曲线试试运气，运气爆棚可以到达终点，则搜索结束
     const double rs_start_time = Clock::NowInSeconds();
     if (AnalyticExpansion(current_node)) {
       break;
@@ -767,10 +788,11 @@ bool HybridAStar::Plan(
       if (next_node == nullptr) {
         continue;
       }
-      // 在close list中，或存在碰撞，则跳过
+      // 在close list中，则跳过
       if (close_set_.find(next_node->GetIndex()) != close_set_.end()) {
         continue;
       }
+      // 存在碰撞，则跳过
       if (!ValidityCheck(next_node)) {
         continue;
       }

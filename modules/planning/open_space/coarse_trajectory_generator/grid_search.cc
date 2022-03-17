@@ -196,6 +196,8 @@ bool GridSearch::GenerateAStarPath(
     }
   }
 
+  
+
   if (final_node_ == nullptr) {
     AERROR << "Grid A searching return null ptr(open_set ran out)";
     return false;

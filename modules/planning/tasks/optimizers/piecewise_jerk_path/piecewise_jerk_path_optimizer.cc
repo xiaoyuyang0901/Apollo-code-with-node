@@ -49,9 +49,8 @@ PiecewiseJerkPathOptimizer::PiecewiseJerkPathOptimizer(
 
 
 /*****************************************************************************************
+ * 
  * 路径规划的主流程
- * 
- * 
  * 
  * ****************************************************************************************/
 common::Status PiecewiseJerkPathOptimizer::Process(
@@ -87,8 +86,7 @@ common::Status PiecewiseJerkPathOptimizer::Process(
                     5.0),
       config.ddl_weight(), config.dddl_weight(), 0.0};
 
-  const auto& path_boundaries =
-      reference_line_info_->GetCandidatePathBoundaries();
+  const auto& path_boundaries = reference_line_info_->GetCandidatePathBoundaries();
   ADEBUG << "There are " << path_boundaries.size() << " path boundaries.";
   const auto& reference_path_data = reference_line_info_->path_data();
 
@@ -129,7 +127,6 @@ common::Status PiecewiseJerkPathOptimizer::Process(
         end_state[0] = pull_over_sl.l();
       }
     }
-    // TODO(all): double-check this;
     // final_path_data might carry info from upper stream
     PathData path_data = *final_path_data;
 
@@ -204,7 +201,14 @@ common::Status PiecewiseJerkPathOptimizer::Process(
 }
 
 
-// 后轴坐标系 ————> 前轴坐标系
+
+
+
+/*****************************************************************************************
+ * 
+ * 后轴坐标系 ————> 前轴坐标系
+ * 
+ * ****************************************************************************************/
 common::TrajectoryPoint  PiecewiseJerkPathOptimizer::InferFrontAxeCenterFromRearAxeCenter(
     const common::TrajectoryPoint& traj_point) {
   double front_to_rear_axe_distance =
@@ -219,7 +223,12 @@ common::TrajectoryPoint  PiecewiseJerkPathOptimizer::InferFrontAxeCenterFromRear
 
 
 
-// 把路标点 换到后轴中心坐标系
+
+/*****************************************************************************************
+ * 
+ * 把路标点 换到后轴中心坐标系
+ * 
+ * ****************************************************************************************/
 std::vector<common::PathPoint>    PiecewiseJerkPathOptimizer::ConvertPathPointRefFromFrontAxeToRearAxe(
     const PathData& path_data) {
   std::vector<common::PathPoint> ret;
@@ -240,8 +249,10 @@ std::vector<common::PathPoint>    PiecewiseJerkPathOptimizer::ConvertPathPointRe
 
 
 /***********************************************************************************
+ * 
  * 借用QP，完成最优轨迹的求解
  * 输出：一串离散点 (s, l, l', l'')
+ * 
  ***********************************************************************************/
 bool PiecewiseJerkPathOptimizer::OptimizePath(
     const std::array<double, 3>& init_state,
@@ -318,7 +329,8 @@ bool PiecewiseJerkPathOptimizer::OptimizePath(
                                                  axis_distance, max_yaw_rate);
   piecewise_jerk_problem.set_dddx_bound(jerk_bound);
 
-  // 上面一通操作猛如虎，这一步才是关键啊，求解！！！
+  // 上面做了那么多的 set
+  //  一通操作猛如虎，这一步才是关键啊，求解！！！
   bool success = piecewise_jerk_problem.Optimize(max_iter);
 
   auto end_time = std::chrono::system_clock::now();
@@ -330,6 +342,7 @@ bool PiecewiseJerkPathOptimizer::OptimizePath(
     return false;
   }
 
+  // 做好输出 转接工作
   *x = piecewise_jerk_problem.opt_x();
   *dx = piecewise_jerk_problem.opt_dx();
   *ddx = piecewise_jerk_problem.opt_ddx();
@@ -342,8 +355,8 @@ bool PiecewiseJerkPathOptimizer::OptimizePath(
 /*****************************************************************************************
 * 这里使用jerk恒定曲线（即3次多项式），依据Δs、l、l'、l''，resolution插值得到离散的路标点
 * 详情见：
-* apollo-master\modules\planning\common\trajectory1d\piecewise_jerk_trajectory1d.cc
-* apollo-master\modules\planning\common\trajectory1d\constant_jerk_trajectory1d.cc
+* modules\planning\common\trajectory1d\piecewise_jerk_trajectory1d.cc
+* modules\planning\common\trajectory1d\constant_jerk_trajectory1d.cc
 *****************************************************************************************/
 FrenetFramePath PiecewiseJerkPathOptimizer::ToPiecewiseJerkPath(
     const std::vector<double>& x, const std::vector<double>& dx,
@@ -355,15 +368,16 @@ FrenetFramePath PiecewiseJerkPathOptimizer::ToPiecewiseJerkPath(
 
   PiecewiseJerkTrajectory1d piecewise_jerk_traj(x.front(), dx.front(),
                                                 ddx.front());
-  // 注意：从1开始，这一可以得到（n-1）个segment
+  // 从1开始，这一可以得到（n-1）个segment
   for (std::size_t i = 1; i < x.size(); ++i) {
     const auto dddl = (ddx[i] - ddx[i - 1]) / delta_s;
+    // 知道了jerk，间隔delta_s也知道，积分一下三次多项式就出来
     piecewise_jerk_traj.AppendSegment(dddl, delta_s);
   }
   std::vector<common::FrenetFramePoint> frenet_frame_path;
   double accumulated_s = 0.0;
-  // 从整个路径的起点到终点（包含了各段恢复出来的segment）,
-  // 累加resolution 得到离散的路标点
+  // 从整个路径的起点到终点，累加resolution 得到离散的路标点
+  // 知道accumulated_s就可以判断具体属于哪个segment，然后Evaluate
   while (accumulated_s < piecewise_jerk_traj.ParamLength()) {
     double l = piecewise_jerk_traj.Evaluate(0, accumulated_s);
     double dl = piecewise_jerk_traj.Evaluate(1, accumulated_s);

@@ -29,9 +29,13 @@ PiecewiseJerkPathProblem::PiecewiseJerkPathProblem(
 
 
 
-// 1、计算 Hessian 矩阵
-// 2、转变成 OSQP求解器需要的素材
-// 其中涉及到 csc_matrix 的相关参数计算，可以查看这个链接了解https://blog.csdn.net/weixin_34945803/article/details/106576629
+
+/*******************************************************************************
+ * 
+ * 1、计算 Hessian 矩阵
+ * 2、转变成 OSQP求解器需要的素材
+ * 
+ * *****************************************************************************/
 void PiecewiseJerkPathProblem::CalculateKernel(std::vector<c_float>* P_data,
                                                std::vector<c_int>* P_indices,
                                                std::vector<c_int>* P_indptr) {
@@ -41,7 +45,6 @@ void PiecewiseJerkPathProblem::CalculateKernel(std::vector<c_float>* P_data,
   std::vector<std::vector<std::pair<c_int, c_float>>> columns(num_of_variables);
   int value_index = 0;
 
-  // Hessian矩阵 每个元素的计算参考 https://mp.weixin.qq.com/s?__biz=MzI1NjkxOTMyNQ==&mid=2247486492&idx=1&sn=2bfb421186364cbd6b00fb278a4a70fe&chksm=ea1e1e6edd699778417d0b1dc6e009b445c8c03218d555f5c872ecc08f49f4b1767fcabdd029&mpshare=1&scene=1&srcid=#rd
   
   // x(i)^2 * (w_x + w_x_ref[i]), w_x_ref might be a uniform value for all x(i) or piecewise values for different x(i)
   for (int i = 0; i < n - 1; ++i) {
@@ -50,6 +53,7 @@ void PiecewiseJerkPathProblem::CalculateKernel(std::vector<c_float>* P_data,
     ++value_index;
   }
   // x(n-1)^2 * (w_x + w_x_ref[n-1] + w_end_x)
+  // 末态单独处理
   columns[n - 1].emplace_back(
       n - 1, (weight_x_ + weight_x_ref_vec_[n - 1] + weight_end_state_[0]) /
                  (scale_factor_[0] * scale_factor_[0]));
@@ -92,12 +96,13 @@ void PiecewiseJerkPathProblem::CalculateKernel(std::vector<c_float>* P_data,
 
 
   // -2 * w_dddx / delta_s^2 * x(i)'' * x(i + 1)''
-  // hession矩阵的 右下角这个 n*n的矩阵，除了对角线元素，它右上角还有一排元素
+  // hession矩阵的 右下角这个 n*n的矩阵，除了对角线元素，它左下侧还有一排元素
   /***       |    o                  | 
    *         |         o             |
+   *         |              o        |
    *         |              o  o     |
-   *         |                 o  o  |
-   * ***/    |                    0  |
+   *         |                 o  0  |
+   * ***/ 
   for (int i = 0; i < n - 1; ++i) {
     columns[2 * n + i].emplace_back(2 * n + i + 1,
                                     (-2.0 * weight_dddx_ / delta_s_square) /
@@ -107,28 +112,28 @@ void PiecewiseJerkPathProblem::CalculateKernel(std::vector<c_float>* P_data,
 
   CHECK_EQ(value_index, num_of_nonzeros);
 
-  // 这里比较特殊，目标函数的 hession 对角矩阵，每个元素对应的是权重，所以P_indptr直接累加就好，
-  // 这里ind_p 便是记录到目前为止  非零元素的个数
+  // 转换成csc_matrix的形式
   int ind_p = 0;
   for (int i = 0; i < num_of_variables; ++i) {
     P_indptr->push_back(ind_p);
     for (const auto& row_data_pair : columns[i]) {
-      P_data->push_back(row_data_pair.second * 2.0); // P_data来记录 hession矩阵的元素        <------------------
-      P_indices->push_back(row_data_pair.first);     // P_indices来记录各个元素所在列的行号                //    |
-      ++ind_p;                                                                                           //    |
-    }                                                                                                    //    |
-  }                                                                                                      //    |
-  P_indptr->push_back(ind_p);                                                                            //    |
-}                                                                                                        //    |
-                                                                                                         //    |
-                                                                                                         //    |
-                                                                                                         //    |
-// 最后，我们将进行offset 补偿，这里主要指的是 最后的参考线要考虑referline这一因素，即初始解。                  //    |
-// 保证尽可能不要有太大偏差，这样有可能给车辆带来不稳定因素，这里主要是给目标函数进行补偿，目标函数的 ref一项。    //   |
-                                                                                                         //    |
-// 其实目标函数在横向位移上有两项： l^2+(l-ref)^2,因此可以看到为什么在目标函数里，l^2的系数乘以2，--------------------|
-// 在这里将第二项进行了拆解，于是有了offset。 即 -2ref*i，这个就对应了
-// 至于为什么不考虑ref^2，因为它是个非负实数，并不包含任何变量，因此不影响梯度下降-->不影响求解-->此处省略
+      P_data->push_back(row_data_pair.second * 2.0); // P_data来记录 hession矩阵的元素        
+      P_indices->push_back(row_data_pair.first);     // P_indices来记录各个元素所在列的行号               
+      ++ind_p;                                                                                           
+    }                                                                                                    
+  }                                                                                                      
+  P_indptr->push_back(ind_p);                                                                            
+}                                                                                                       
+
+
+
+
+/*******************************************************************************
+ * 
+ * 目标函数中的 (l-l_ref)^2 = l^2 - 2*l_ref*l + l_ref^2
+ * l_ref^2是个非负实数，对梯度没贡献可以忽略，g矩阵中就只剩下 -2*l_ref*l
+ * 
+ * *****************************************************************************/
 void PiecewiseJerkPathProblem::CalculateOffset(std::vector<c_float>* q) {
   CHECK_NOTNULL(q);
   const int n = static_cast<int>(num_of_knots_);

@@ -123,9 +123,9 @@ bool DpRoadGraph::FindPathTunnel(const common::TrajectoryPoint &init_point,
 /*****************************************************************************
  * 
 *分为3部分：
-*1、先采样，调用SamplePathWaypoints()方法完成
-*2、然后构造graph
-*3、最后查找从起点（自车当前位置）到终点（尽可能远的某个采样点）的代价最小路径
+*1、先采样，撒点得到path_waypoints，调用SamplePathWaypoints()方法完成
+*2、然后构造graph，即forward过程
+*3、backward过程，顺藤摸瓜得到cost最小路径
 ******************************************************************************/
 bool DpRoadGraph::GenerateMinCostPath(
     const std::vector<const Obstacle *> &obstacles,
@@ -148,7 +148,7 @@ bool DpRoadGraph::GenerateMinCostPath(
       obstacles, vehicle_config.vehicle_param(), speed_data_, init_sl_point_,
       reference_line_info_.AdcSlBoundary());
 
-  // 2、存储构建的graph，速度DP过程用的数据结构是vector<vector<>>，路径这是list<list<>>
+  // 2、存储构建的graph，速度DP过程用的数据结构是vector<vector<>>，路径这里是list<list<>>
   std::list<std::list<DpRoadGraphNode>> graph_nodes;
 
   // 从撒点得到的path_waypoints的第一纵列中，找到nearest_i

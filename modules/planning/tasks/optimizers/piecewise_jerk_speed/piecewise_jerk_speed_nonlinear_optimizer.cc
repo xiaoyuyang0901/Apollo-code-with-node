@@ -135,8 +135,7 @@ Status PiecewiseJerkSpeedNonlinearOptimizer::Process(
     const auto nlp_start = std::chrono::system_clock::now();
 
     // 用 IPOPT 求解器再次优化，基于 QP 的结果
-    const auto nlp_smooth_status =
-        OptimizeByNLP(&distance, &velocity, &acceleration);
+    const auto nlp_smooth_status = OptimizeByNLP(&distance, &velocity, &acceleration);
 
     const auto nlp_end = std::chrono::system_clock::now();
     std::chrono::duration<double> nlp_diff = nlp_end - nlp_start;

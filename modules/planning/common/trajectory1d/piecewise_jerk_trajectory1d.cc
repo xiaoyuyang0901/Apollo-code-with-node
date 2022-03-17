@@ -42,6 +42,8 @@ void PiecewiseJerkTrajectory1d::AppendSegment(const double jerk,
                                               const double param) {
   CHECK_GT(param, FLAGS_numerical_epsilon);
 
+  // param_（即delta_s）有个累加的行为
+  // 这样下面Evaluate的时候就方便知道具体是哪个segment
   param_.push_back(param_.back() + param);
 
   segments_.emplace_back(last_p_, last_v_, last_a_, jerk, param);

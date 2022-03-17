@@ -49,28 +49,30 @@ PiecewiseJerkProblem::PiecewiseJerkProblem(
 }
 
 
-//该函数是重点，主要包含了目标函数与相应约束的建立，以及目标函数的offset补偿。
+
+/*******************************************************************************
+ * 
+ * QP问题建模：1. 目标函数Hessian矩阵  2. g矩阵  3. 约束条件A矩阵    的建模
+ * 
+ * *****************************************************************************/
 OSQPData* PiecewiseJerkProblem::FormulateProblem() {
-  // calculate kernel
   // 0.5xHx + fx中的H矩阵计算
   std::vector<c_float> P_data;
   std::vector<c_int> P_indices;
   std::vector<c_int> P_indptr;
-  // 该函数为纯虚函数，参考子类中override的实线
+  // 目标函数Hessian矩阵
   CalculateKernel(&P_data, &P_indices, &P_indptr);
 
-  // calculate affine constraints
   std::vector<c_float> A_data;
   std::vector<c_int> A_indices;
   std::vector<c_int> A_indptr;
   std::vector<c_float> lower_bounds;
   std::vector<c_float> upper_bounds;
-  // 该函数为虚函数，参考子类中override的实线
+  // 约束条件中的A矩阵
   CalculateAffineConstraint(&A_data, &A_indices, &A_indptr, 
                             &lower_bounds, &upper_bounds);
 
-  // calculate offset
-  // 0.5xHx + fx中的f矩阵计算
+  // 0.5xHx + gx中的g矩阵计算
   std::vector<c_float> q;
   CalculateOffset(&q);
 
@@ -94,8 +96,14 @@ OSQPData* PiecewiseJerkProblem::FormulateProblem() {
 }
 
 
-// Optimize函数被task中的optimizer直接调用，因此算是一个入口函数。
-// 调用上面的 FormulateProblem，完成问题 OSQP求解器需要的格式
+
+
+/*******************************************************************************
+ * 
+ * Optimize函数被task中的optimizer直接调用，因此算是一个入口函数
+ * 调用上面的 FormulateProblem，完成问题 OSQP求解器需要的格式
+ * 
+ * *****************************************************************************/
 bool PiecewiseJerkProblem::Optimize(const int max_iter) {
   OSQPData* data = FormulateProblem();
 
@@ -105,7 +113,7 @@ bool PiecewiseJerkProblem::Optimize(const int max_iter) {
   OSQPWorkspace* osqp_work = nullptr;
   osqp_work = osqp_setup(data, settings);
   
-  // 完事具备，就差solve --> 搞定
+  // 万事具备，就差solve --> 搞定
   osqp_solve(osqp_work);
 
   auto status = osqp_work->info->status_val;
@@ -144,17 +152,21 @@ bool PiecewiseJerkProblem::Optimize(const int max_iter) {
 }
 
 
-// 计算约束条件的 A 矩阵
+
+
+
+/*******************************************************************************
+ * 
+ * 计算约束条件的 A 矩阵
+ * 
+ * *****************************************************************************/
 void PiecewiseJerkProblem::CalculateAffineConstraint(
     std::vector<c_float>* A_data, std::vector<c_int>* A_indices,
     std::vector<c_int>* A_indptr, std::vector<c_float>* lower_bounds,
     std::vector<c_float>* upper_bounds) {
-  // 3N params bounds on x, x', x''
-  // 3(N-1) constraints on x, x', x''
-  // 3 constraints on x_init_
-  //说的很详细，主要包含 变量边界约束，三个运动学公式约束以及初始状态约束，
-  //边界约束主要是横向最大位移、最大速度、最大加速度等，
-  //运动学公式主要是 x(i->i+1)''' = (x(i+1)'' - x(i)'') / delta_s等等
+  // 3N个    上下界约束
+  // 3(N-1)  连续性约束
+  // 3个     初始约束
   const int n = static_cast<int>(num_of_knots_);
   const int num_of_variables = 3 * n;                                // 决策变量个数
   const int num_of_constraints = num_of_variables + 3 * (n - 1) + 3; // 约束条件的个数
@@ -164,8 +176,8 @@ void PiecewiseJerkProblem::CalculateAffineConstraint(
   std::vector<std::vector<std::pair<c_int, c_float>>> variables(num_of_variables);
 
   int constraint_index = 0;
+
   // set x, x', x'' bounds
-  // 首先是变量约束，通过赋值变量上下边界，完成约束设置
   for (int i = 0; i < num_of_variables; ++i) {
     if (i < n) {
       variables[i].emplace_back(constraint_index, 1.0);
@@ -191,11 +203,8 @@ void PiecewiseJerkProblem::CalculateAffineConstraint(
   }
   CHECK_EQ(constraint_index, num_of_variables);
 
-  // x(i->i+1)''' = (x(i+1)'' - x(i)'') / delta_s  以constrain index作为序列
-  // 随后是运动学约束，可能这里有点搞混，由于csc就是这样的写法。
-  // 这些约束都是按照constrain index作为序列标号，variables[i]在这里只是调用了第i个变量，后面的-1.0代表该变量的相关系数。
-  // 以这个for循环为例， 约束形式应该是： 0*variable[0]+0*variable[1]+....-variables[2*n+i]+variables[2*n+i+1] = 0
-  // (上下界都是0，因此等于0)正好与之前运动学约束对应。
+  // x" 加速度约束
+  // x(i->i+1)''' = (x(i+1)'' - x(i)'') / delta_s
   for (int i = 0; i + 1 < n; ++i) {
     variables[2 * n + i].emplace_back(constraint_index, -1.0);
     variables[2 * n + i + 1].emplace_back(constraint_index, 1.0);
@@ -204,6 +213,7 @@ void PiecewiseJerkProblem::CalculateAffineConstraint(
     ++constraint_index;
   }
 
+  // x' 速度连续性约束
   // x(i+1)' - x(i)' -  0.5*delta_s *x(i)'' -  0.5*delta_s *x(i+1)'' = 0
   for (int i = 0; i + 1 < n; ++i) {
     variables[n + i    ].emplace_back(constraint_index, -1.0 * scale_factor_[2]);
@@ -215,6 +225,7 @@ void PiecewiseJerkProblem::CalculateAffineConstraint(
     ++constraint_index;
   }
 
+  // x 位置连续性约束
   // x(i+1) =  x(i) + delta_s * x(i)' + 1/3* delta_s^2 * x(i)'' + 1/6* delta_s^2 * x(i+1)''
   auto delta_s_sq_ = delta_s_ * delta_s_;
   for (int i = 0; i + 1 < n; ++i) {
@@ -228,8 +239,8 @@ void PiecewiseJerkProblem::CalculateAffineConstraint(
     ++constraint_index;
   }
 
-  // constrain on x_init
-  // 最后是初始状态约束，即最终轨迹的初始状态要与当前车辆状态保持一致
+  // 初始状态约束
+  // constrain on x_init、x'_init、x"_init
   variables[0].emplace_back(constraint_index, 1.0);
   lower_bounds->at(constraint_index) = x_init_[0] * scale_factor_[0];
   upper_bounds->at(constraint_index) = x_init_[0] * scale_factor_[0];
@@ -264,7 +275,14 @@ void PiecewiseJerkProblem::CalculateAffineConstraint(
   A_indptr->push_back(ind_p);
 }
 
-// OPQP 求解器的设置
+
+
+
+/*******************************************************************************
+ * 
+ * OPQP 求解器的设置
+ * 
+ * *****************************************************************************/
 OSQPSettings* PiecewiseJerkProblem::SolverDefaultSettings() {
   // Define Solver default settings
   OSQPSettings* settings =

@@ -54,12 +54,11 @@ bool WaypointSampler::SamplePathWaypoints(
   points->insert(points->begin(), std::vector<common::SLPoint>{init_sl_point_});
 
   const double kMinSampleDistance = 40.0;
-  // 确定要规划的纵向距离
+  // 确定要规划的纵向距离，8秒*init_v或40米
   const double total_length = std::fmin(
       init_sl_point_.s() + std::fmax(init_point.v() * 8.0, kMinSampleDistance),
       reference_line_info_->reference_line().Length());
-  const auto &vehicle_config =
-      common::VehicleConfigHelper::Instance()->GetConfig();
+  const auto &vehicle_config = common::VehicleConfigHelper::Instance()->GetConfig();
   // 车宽的一半
   const double half_adc_width = vehicle_config.vehicle_param().width() / 2.0;
   // 每一纵列撒点数
@@ -68,7 +67,7 @@ bool WaypointSampler::SamplePathWaypoints(
                                 : config_.sample_points_num_each_level();
 
   static constexpr double kSamplePointLookForwardTime = 4.0;
-  // 纵向采样间隔，与速度有关，相差4秒
+  // 纵向采样间隔，与速度有关
   const double level_distance =
       common::math::Clamp(init_point.v() * kSamplePointLookForwardTime,
                           config_.step_length_min(), config_.step_length_max());
@@ -96,7 +95,7 @@ bool WaypointSampler::SamplePathWaypoints(
     reference_line_info_->reference_line().GetLaneWidth(s, &left_width,
                                                         &right_width);
     static constexpr double kBoundaryBuff = 0.20;  // 膨胀区域
-    // 计算实际的可规划左右边界，  减去车宽和膨胀区域
+    // 计算实际的可撒点的左右边界，  减去车宽和膨胀区域
     const double eff_right_width = right_width - half_adc_width - kBoundaryBuff;
     const double eff_left_width = left_width - half_adc_width - kBoundaryBuff;
 

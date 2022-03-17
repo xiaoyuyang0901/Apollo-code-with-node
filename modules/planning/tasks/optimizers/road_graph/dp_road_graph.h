@@ -121,6 +121,7 @@ class DpRoadGraph {
     DpRoadGraphNode *front = nullptr;
     DpRoadGraphNode *cur_node = nullptr;
   };
+  
   void UpdateNode(const std::shared_ptr<RoadGraphMessage> &msg);
 
  private:
