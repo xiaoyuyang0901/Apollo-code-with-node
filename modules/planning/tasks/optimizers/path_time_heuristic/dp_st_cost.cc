@@ -290,6 +290,8 @@ double DpStCost::GetAccelCost(const double accel) {
   return cost * unit_t_;
 }
 
+
+
 double DpStCost::GetAccelCostByThreePoints(const STPoint& first,
                                            const STPoint& second,
                                            const STPoint& third) {

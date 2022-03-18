@@ -132,29 +132,28 @@ Status GriddedPathTimeGraph::Search(SpeedData* const speed_data) {
     }
   }
 
-  // 对于不满足以上条件的boundary，进行下边的计算
-  // 首先，初始化CostTable
+  // 1 初始化CostTable
   if (!InitCostTable().ok()) {
     const std::string msg = "Initialize cost table failed.";
     AERROR << msg;
     return Status(ErrorCode::PLANNING_ERROR, msg);
   }
 
-  // 接着，初始化限速查询表
+  // 2 初始化限速查询表
   if (!InitSpeedLimitLookUp().ok()) {
     const std::string msg = "Initialize speed limit lookup table failed.";
     AERROR << msg;
     return Status(ErrorCode::PLANNING_ERROR, msg);
   }
 
-  // 接着，计算所有的cost，并更新CostTable
+  // 3 计算所有的cost，并更新CostTable
   if (!CalculateTotalCost().ok()) {
     const std::string msg = "Calculate total cost failed.";
     AERROR << msg;
     return Status(ErrorCode::PLANNING_ERROR, msg);
   }
 
-  // 最后，回溯得到SpeedProfile
+  // 4 回溯得到SpeedProfile
   if (!RetrieveSpeedProfile(speed_data).ok()) {
     const std::string msg = "Retrieve best speed profile failed.";
     AERROR << msg;
@@ -559,6 +558,7 @@ void GriddedPathTimeGraph::CalculateCostAt(
 /*************************************************************************************
  * 
  * 回溯，得到最优 speed_data
+ * 
  * **********************************************************************************/
 Status GriddedPathTimeGraph::RetrieveSpeedProfile(SpeedData* const speed_data) {
   double min_cost = std::numeric_limits<double>::infinity();
@@ -572,7 +572,7 @@ Status GriddedPathTimeGraph::RetrieveSpeedProfile(SpeedData* const speed_data) {
   }
 
   // 遍历每一列的最后一个点，找正在的best_end_point，并更新min_cost
-  // 为什么不直接将最后一列的min_cost点作为最佳终点呢？
+  // 这里不直接将最后一列的min_cost点作为最佳终点呢？
   // 因为采样时间是一个预估时间，在此之前的各列最后一个点可能已经到达终点
   for (const auto& row : cost_table_) {
     const StGraphPoint& cur_point = row.back();
