@@ -92,9 +92,9 @@ void PiecewiseJerkSpeedProblem::CalculateKernel(std::vector<c_float>* P_data,
                               (weight_ddx_ + weight_dddx_ / delta_s_square) /
                                   (scale_factor_[2] * scale_factor_[2]));
   ++value_index;
-  // s''惩罚项， 其中还包含了s'''的一部分，也是乘2的原因|
-  for (int i = 1; i < n - 1; ++i) {                //|
-    columns[2*n + i].emplace_back( 2*n + i,        //|
+  // s''惩罚项， 其中还包含了s'''的一部分，
+  for (int i = 1; i < n - 1; ++i) {              
+    columns[2*n + i].emplace_back( 2*n + i,       
                                     (weight_ddx_ + 2.0 * weight_dddx_ / delta_s_square) /
                                     (scale_factor_[2] * scale_factor_[2]));
     ++value_index;
@@ -159,6 +159,7 @@ void PiecewiseJerkSpeedProblem::CalculateOffset(std::vector<c_float>* q) {
         -2.0 * weight_end_state_[2] * end_state_ref_[2] / scale_factor_[2];
   }
 }
+
 
 
 OSQPSettings* PiecewiseJerkSpeedProblem::SolverDefaultSettings() {

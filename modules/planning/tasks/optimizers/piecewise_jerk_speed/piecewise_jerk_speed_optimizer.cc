@@ -98,22 +98,21 @@ Status PiecewiseJerkSpeedOptimizer::Process(const PathData& path_data,
     double s_lower_bound = 0.0;
     double s_upper_bound = total_length;
     for (const STBoundary* boundary : st_graph_data.st_boundaries()) {
-      double s_lower = 0.0; // t时刻的 空白区域 下界
-      double s_upper = 0.0; // t时刻的 空白区域 上界
+      double s_lower = 0.0; 
+      double s_upper = 0.0; 
       if (!boundary->GetUnblockSRange(curr_t, &s_upper, &s_lower)) {
         continue;
       }
       // 不同场景下的 上下界选取
       switch (boundary->boundary_type()) {
-        case STBoundary::BoundaryType::STOP:      // 停车场景
-        case STBoundary::BoundaryType::YIELD:     // 终止换道，更新上界
+        case STBoundary::BoundaryType::STOP:      // 停车
+        case STBoundary::BoundaryType::YIELD:     // 终止换道
           s_upper_bound = std::fmin(s_upper_bound, s_upper);
           break;
-        case STBoundary::BoundaryType::FOLLOW:    // 跟车，更新上界
-          // TODO(Hongyi): unify follow buffer on decision side
+        case STBoundary::BoundaryType::FOLLOW:    // 跟车
           s_upper_bound = std::fmin(s_upper_bound, s_upper - 8.0); // 借了点膨胀区域“8.0”
           break;
-        case STBoundary::BoundaryType::OVERTAKE:  // 超车，更新下界
+        case STBoundary::BoundaryType::OVERTAKE:  // 超车
           s_lower_bound = std::fmax(s_lower_bound, s_lower);
           break;
         default:
